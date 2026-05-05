@@ -1215,7 +1215,7 @@ function gerarDadosExemplo(){
   return dados;
 }
 
-// GERADOR SELL-OUT FICTICIO (live) - inclui UF + CHAN_DESC
+// GERADOR SELL-OUT FICTICIO (live)
 function gerarSelloutExemplo(){
   const redes = [
     {nome:'GRUPO RAIA DROGASIL', tipo:'2.REDE', uf:'SP'},
@@ -1227,8 +1227,7 @@ function gerarSelloutExemplo(){
     {nome:'DROGARIA NISSEI', tipo:'2.REDE', uf:'PR'},
     {nome:'INDEPENDENTE SP', tipo:'1.INDEPENDENTE', uf:'SP'},
     {nome:'INDEPENDENTE NE', tipo:'1.INDEPENDENTE', uf:'BA'},
-    {nome:'INDEPENDENTE MG', tipo:'1.INDEPENDENTE', uf:'MG'},
-    {nome:'INDEPENDENTE GO', tipo:'1.INDEPENDENTE', uf:'GO'}
+    {nome:'INDEPENDENTE MG', tipo:'1.INDEPENDENTE', uf:'MG'}
   ];
   const produtosSO = [
     {n:'CLARIL', fr:'PHARMA', brl:48, gap:0.15},
@@ -1237,15 +1236,14 @@ function gerarSelloutExemplo(){
     {n:'PATADAY', fr:'PHARMA', brl:80, gap:-0.05},
     {n:'MAXIDEX', fr:'PHARMA', brl:36, gap:0.05},
     {n:'TOBRADEX', fr:'PHARMA', brl:40, gap:0.20},
-    {n:'PRED FORTE', fr:'PHARMA', brl:52, gap:0.25},
     {n:'TRAVATAN Z', fr:'PHARMA', brl:115, gap:-0.10},
     {n:'TOTAL 30', fr:'LENTES', brl:175, gap:0.12},
     {n:'DAILIES TOTAL1', fr:'LENTES', brl:215, gap:0.08}
   ];
-  // No live, tudo é Farmacia (já que Python filtra)
   let seed = 17;
   const rand = () => {seed=(seed*9301+49297)%233280;return seed/233280;};
-  const dados = [];
+  const dadosPrincipal = [];
+  const dadosUF = [];
   for(let ano=2024; ano<=2026; ano++){
     for(let mes=1; mes<=12; mes++){
       if(ano===2024 && mes<4) continue;
@@ -1258,17 +1256,18 @@ function gerarSelloutExemplo(){
           const baseUnid = (200 + rand()*800) * tamanhoRede * sazonalidade * crescimentoSO;
           const unid = Math.round(baseUnid);
           if(unid <= 0) return;
-          dados.push({
+          const reg = {
             GRUPO_PAINEL: rede.nome, FRANQUIA: prod.fr, TIPO_CLIENTE: rede.tipo,
             PRODUTO: prod.n, ANO: ano, MES: mes,
-            CHAN_DESC: 'Farmacia', UF: rede.uf,
             BRL: Math.round(unid * prod.brl), UNID: unid
-          });
+          };
+          dadosPrincipal.push(reg);
+          dadosUF.push(Object.assign({}, reg, {UF: rede.uf}));
         });
       });
     }
   }
-  return {dados: dados, ultimoPeriodo: {ano: 2026, mes: 1}};
+  return {principal: dadosPrincipal, uf: dadosUF, ultimoPeriodo: {ano: 2026, mes: 1}};
 }
 
 
@@ -2517,13 +2516,17 @@ function renderUF(per){
   const rankingDiv = document.getElementById('ufRanking');
   const tabelaDiv = document.getElementById('ufTabela');
 
-  if(!rawDataSellout || rawDataSellout.length === 0){
+  // Usa estrutura UF separada (lazy load - so carregada se card for renderizado)
+  // Fallback: se nao tiver estrutura UF, tenta usar a principal (compatibilidade)
+  const dadosUF = window.__rawDataSelloutUF || rawDataSellout;
+
+  if(!dadosUF || dadosUF.length === 0){
     card.style.display = 'none';
     return;
   }
 
   // Verificar se tem coluna UF
-  const temUF = rawDataSellout.some(r => r.UF);
+  const temUF = dadosUF.some(r => r.UF);
   if(!temUF){
     card.style.display = 'none';
     return;
@@ -2567,7 +2570,7 @@ function renderUF(per){
   // Agregação por UF
   const aggUF = {};
 
-  for(const r of rawDataSellout){
+  for(const r of dadosUF){
     if(!selloutCanalOk(r)) continue;
     if(franquiasSetA && !franquiasSetA.has(String(r.FRANQUIA))) continue;
     if(tipoSetA && !tipoSetA.has(r.TIPO_CLIENTE)) continue;
@@ -8240,7 +8243,8 @@ mapTargets = {
   'CLARIL': 25, 'MAXIDEX': 20, 'TOBRADEX': 30, 'PRED FORTE': 25, 'TRAVATAN Z': 15
 };
 const selloutDemo = gerarSelloutExemplo();
-rawDataSellout = selloutDemo.dados;
+rawDataSellout = selloutDemo.principal;
+window.__rawDataSelloutUF = selloutDemo.uf;
 selloutUltimoPeriodo = selloutDemo.ultimoPeriodo;
 window.__clienteTipoMap = {
   'PROFARMA DIST': 'DISTRIBUIDOR',
@@ -8252,8 +8256,7 @@ window.__clienteTipoMap = {
   'DROGARIA NISSEI': '2.REDE',
   'INDEPENDENTE SP': '1.INDEPENDENTE',
   'INDEPENDENTE NE': '1.INDEPENDENTE',
-  'INDEPENDENTE MG': '1.INDEPENDENTE',
-  'INDEPENDENTE GO': '1.INDEPENDENTE'
+  'INDEPENDENTE MG': '1.INDEPENDENTE'
 };
 document.getElementById('statusText').textContent = `${rawData.length.toLocaleString('pt-BR')} registros sell-in + ${rawDataSellout.length.toLocaleString('pt-BR')} sell-out + ${Object.keys(mapTargets).length} targets FOCO (demo)`;
 inicializarFiltros();

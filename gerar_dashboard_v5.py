@@ -114,6 +114,7 @@ def ler_depara(path):
     mapeamento = {}
     ignorar = set()
     sellins_unicos = set()
+    duplicatas = []  # PRODUTO_SELLOUT que apareceu mais de uma vez
 
     for _, row in df.iterrows():
         sellin = norm(row["PRODUTO_SELLIN"])
@@ -124,25 +125,48 @@ def ler_depara(path):
             continue
 
         # Formato: 1 par por linha (PRODUTO_SELLIN | PRODUTO_SELLOUT)
-        # Para mapear MULTIPLOS sell-out para o MESMO sell-in:
-        #   adicione VARIAS LINHAS com mesmo PRODUTO_SELLIN
-        # Exemplo:
-        #   SYSTANE ULTRA  | SYSTANE UL
-        #   SYSTANE ULTRA  | SYSTANE UL (SLC)
-        #   SYSTANE ULTRA  | SYSTANE U
+        # DePara puramente 1:1 - cada PRODUTO_SELLOUT mapeia para 1 PRODUTO_SELLIN
         if incluir == "NAO":
             ignorar.add(sellout)
             continue
+
+        # Validar duplicatas (mesmo PRODUTO_SELLOUT em multiplas linhas)
+        if sellout in mapeamento:
+            sellin_anterior = mapeamento[sellout]
+            duplicatas.append({
+                "PRODUTO_SELLOUT": sellout,
+                "MAPEAMENTO_USADO": sellin_anterior,
+                "MAPEAMENTO_IGNORADO": sellin or "(vazio)",
+            })
+            continue  # mantem o primeiro mapeamento, ignora duplicatas
+
         if sellin:
             mapeamento[sellout] = sellin
             sellins_unicos.add(sellin)
         else:
             # sellout sem sellin -> incluir mas nao mapear (mantem nome SO)
-            mapeamento[sellout] = sellout  # nome canonico = ele mesmo
+            mapeamento[sellout] = sellout
 
     print(f"     Produtos sell-in unicos: {len(sellins_unicos)}")
     print(f"     Pares sell-in <-> sell-out: {len(mapeamento)}")
     print(f"     Produtos a ignorar: {len(ignorar)}")
+
+    # Avisar duplicatas + gerar CSV
+    if duplicatas:
+        print()
+        print(f"     [AVISO] {len(duplicatas)} duplicatas detectadas em PRODUTO_SELLOUT")
+        print(f"     (mantido o primeiro mapeamento, demais ignorados)")
+        print(f"     Top 5:")
+        for d in duplicatas[:5]:
+            print(f"       - '{d['PRODUTO_SELLOUT']}' usado: '{d['MAPEAMENTO_USADO']}' | ignorado: '{d['MAPEAMENTO_IGNORADO']}'")
+
+        # Salvar CSV
+        try:
+            csv_path = str(Path(path).parent / "DePara_duplicatas.csv")
+            pd.DataFrame(duplicatas).to_csv(csv_path, index=False, encoding="utf-8-sig")
+            print(f"     CSV de duplicatas: {csv_path}")
+        except Exception as e:
+            print(f"     [WARN] Nao foi possivel salvar CSV: {e}")
 
     return mapeamento, ignorar
 
@@ -353,27 +377,45 @@ def ler_sellout_gerencial(path):
     df_pivot["PRODUTO"] = df_pivot["PRODUTO_CANONICO"]
     df_pivot = df_pivot.drop(columns=["PRODUTO_CANONICO"])
 
-    # Re-agregar mantendo CHAN_DESC e UF se existirem
-    group_cols = ["GRUPO_PAINEL", "FRANQUIA", "TIPO_CLIENTE", "PRODUTO"]
-    if tem_canal:
-        group_cols.append("CHAN_DESC")
-    if tem_uf:
-        group_cols.append("UF")
-    group_cols += ["ANO", "MES"]
-    df_pivot = df_pivot.groupby(group_cols, dropna=False).agg(
-        BRL=("BRL", "sum"), UNID=("UNID", "sum")
-    ).reset_index()
+    # =================================================================
+    # CRIAR 2 ESTRUTURAS SEPARADAS PARA OTIMIZAR PERFORMANCE:
+    #
+    # 1. PRINCIPAL (sem UF, sem CHAN_DESC): usado por 95% do dashboard
+    #    Agrega tudo no nivel cliente x produto x mes (~60k linhas tipico)
+    #
+    # 2. UF (com UF): usado APENAS pelo card "Diagnostico por UF"
+    #    Mantem granularidade por estado (~150k+ linhas)
+    #
+    # Isso evita inflar todos os cards com dimensoes que so um usa.
+    # =================================================================
 
-    ultimo_mes = df_pivot.sort_values(["ANO", "MES"], ascending=False).iloc[0]
+    # Estrutura PRINCIPAL: agrega UF e CHAN_DESC (vira 1 linha por cliente x produto x mes)
+    df_principal = df_pivot.groupby(
+        ["GRUPO_PAINEL", "FRANQUIA", "TIPO_CLIENTE", "PRODUTO", "ANO", "MES"],
+        dropna=False
+    ).agg(BRL=("BRL", "sum"), UNID=("UNID", "sum")).reset_index()
+
+    # Estrutura UF: mantem UF como dimensao (so usado pelo card UF)
+    df_uf = None
+    if tem_uf:
+        df_uf = df_pivot.groupby(
+            ["GRUPO_PAINEL", "FRANQUIA", "TIPO_CLIENTE", "PRODUTO", "UF", "ANO", "MES"],
+            dropna=False
+        ).agg(BRL=("BRL", "sum"), UNID=("UNID", "sum")).reset_index()
+
+    ultimo_mes = df_principal.sort_values(["ANO", "MES"], ascending=False).iloc[0]
     ultimo_periodo = {"ano": int(ultimo_mes["ANO"]), "mes": int(ultimo_mes["MES"])}
 
-    print(f"     Linhas agregadas: {len(df_pivot):,}")
+    print(f"     Linhas estrutura PRINCIPAL: {len(df_principal):,}")
+    if df_uf is not None:
+        print(f"     Linhas estrutura UF (separada): {len(df_uf):,}")
     print(f"     Ultimo periodo: {ultimo_periodo['mes']:02d}/{ultimo_periodo['ano']}")
-    print(f"     Total BRL: R$ {df_pivot['BRL'].sum():,.0f}")
-    print(f"     Total Unid: {df_pivot['UNID'].sum():,.0f}")
+    print(f"     Total BRL: R$ {df_principal['BRL'].sum():,.0f}")
+    print(f"     Total Unid: {df_principal['UNID'].sum():,.0f}")
 
-    registros = df_pivot.to_dict("records")
-    return registros, ultimo_periodo
+    registros = df_principal.to_dict("records")
+    registros_uf = df_uf.to_dict("records") if df_uf is not None else []
+    return registros, ultimo_periodo, registros_uf
 
 
 def ler_sellin(path):
@@ -440,7 +482,7 @@ def gerar_html():
     df = ler_sellin(PATH_XLSX)
     targets = ler_targets(PATH_TARGETS)
     targets_fin = ler_targets_fin(PATH_TARGETS_FIN)
-    sellout, ultimo_sellout = ler_sellout_gerencial(PATH_SELLOUT)
+    sellout, ultimo_sellout, sellout_uf = ler_sellout_gerencial(PATH_SELLOUT)
 
     depara_ok = Path(PATH_DEPARA).exists()
 
@@ -464,11 +506,13 @@ def gerar_html():
     targets_json = json.dumps(targets, ensure_ascii=False)
     targets_fin_json = json.dumps(targets_fin, ensure_ascii=False, default=str)
     sellout_json = json.dumps(sellout, ensure_ascii=False, default=str)
+    sellout_uf_json = json.dumps(sellout_uf, ensure_ascii=False, default=str) if sellout_uf else "[]"
     ultimo_sellout_json = json.dumps(ultimo_sellout, ensure_ascii=False) if ultimo_sellout else "null"
     cliente_tipo_json = json.dumps(cliente_tipo_map, ensure_ascii=False)
 
     print(f"\nJSON sell-in: {len(dados_json)/1024:.1f} KB")
     print(f"JSON sell-out: {len(sellout_json)/1024:.1f} KB")
+    print(f"JSON sell-out UF: {len(sellout_uf_json)/1024:.1f} KB")
 
     padrao_cols = re.compile(r"const\s+COLS\s*=\s*\{[^}]+\};", re.DOTALL)
     novo_template, n_cols = padrao_cols.subn(
@@ -486,6 +530,7 @@ def gerar_html():
         f"window.__ALCON_TARGETS_EMBED__ = {targets_json};\n"
         f"window.__ALCON_TARGETS_FIN_EMBED__ = {targets_fin_json};\n"
         f"window.__ALCON_SELLOUT_EMBED__ = {sellout_json};\n"
+        f"window.__ALCON_SELLOUT_UF_EMBED__ = {sellout_uf_json};\n"
         f"window.__ALCON_SELLOUT_ULTIMO__ = {ultimo_sellout_json};\n"
         f"window.__ALCON_CLIENTE_TIPO_MAP__ = {cliente_tipo_json};\n"
         f"window.__ALCON_DEPARA_OK__ = {str(depara_ok).lower()};\n"
@@ -508,6 +553,7 @@ def gerar_html():
         "if(window.__ALCON_TARGETS_EMBED__){mapTargets = window.__ALCON_TARGETS_EMBED__;}"
         "if(window.__ALCON_TARGETS_FIN_EMBED__){targetsFinanceiros = window.__ALCON_TARGETS_FIN_EMBED__;}"
         "if(window.__ALCON_SELLOUT_EMBED__){rawDataSellout = window.__ALCON_SELLOUT_EMBED__.map(function(r){return Object.assign({},r,{ANO:+r.ANO,MES:+r.MES,BRL:+r.BRL||0,UNID:+r.UNID||0});});}"
+        "if(window.__ALCON_SELLOUT_UF_EMBED__){window.__rawDataSelloutUF = window.__ALCON_SELLOUT_UF_EMBED__.map(function(r){return Object.assign({},r,{ANO:+r.ANO,MES:+r.MES,BRL:+r.BRL||0,UNID:+r.UNID||0});});}"
         "if(window.__ALCON_SELLOUT_ULTIMO__){selloutUltimoPeriodo = window.__ALCON_SELLOUT_ULTIMO__;}"
         "if(window.__ALCON_CLIENTE_TIPO_MAP__){window.__clienteTipoMap = window.__ALCON_CLIENTE_TIPO_MAP__;}"
         "if(window.__ALCON_DEPARA_OK__ === false && rawDataSellout && rawDataSellout.length > 0){var b=document.getElementById('deparaBanner');if(b)b.style.display='block';}"

@@ -2460,13 +2460,17 @@ function renderUF(per){
   const rankingDiv = document.getElementById('ufRanking');
   const tabelaDiv = document.getElementById('ufTabela');
 
-  if(!rawDataSellout || rawDataSellout.length === 0){
+  // Usa estrutura UF separada (lazy load - so carregada se card for renderizado)
+  // Fallback: se nao tiver estrutura UF, tenta usar a principal (compatibilidade)
+  const dadosUF = window.__rawDataSelloutUF || rawDataSellout;
+
+  if(!dadosUF || dadosUF.length === 0){
     card.style.display = 'none';
     return;
   }
 
   // Verificar se tem coluna UF
-  const temUF = rawDataSellout.some(r => r.UF);
+  const temUF = dadosUF.some(r => r.UF);
   if(!temUF){
     card.style.display = 'none';
     return;
@@ -2510,7 +2514,7 @@ function renderUF(per){
   // Agregação por UF
   const aggUF = {};
 
-  for(const r of rawDataSellout){
+  for(const r of dadosUF){
     if(!selloutCanalOk(r)) continue;
     if(franquiasSetA && !franquiasSetA.has(String(r.FRANQUIA))) continue;
     if(tipoSetA && !tipoSetA.has(r.TIPO_CLIENTE)) continue;
