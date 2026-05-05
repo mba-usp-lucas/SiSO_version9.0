@@ -61,14 +61,17 @@ COLS_SELLOUT = {
 MEDIDA_REAIS = "Reais_PPP"
 MEDIDA_UNID = "Unidades"
 
-# Filtro de canal - NAO MAIS APLICADO NO PYTHON
-# A logica de canal agora eh DINAMICA no JS:
-#   - Default: filtra apenas Farmacia
-#   - Quando cliente e Distribuidor (TIPO_CLIENTE_FINAL=DISTRIBUIDOR no sell-in):
-#       traz TODOS os canais (Farmacia + Hospitalar + Outros)
-#   - Quando filtro TIPO_CLIENTE = Distribuidor: idem
-# O Python passa TODOS os registros e o JS aplica condicionalmente
-FILTRO_CANAL_PADRAO = None  # None = nao filtra no Python (filtro dinamico no JS)
+# Filtro de canal - aplicado SEMPRE no agregado de sell-out
+# Mantem apenas linhas onde CHAN_DESC contem 'farmacia' (case insensitive)
+#
+# OBSERVACAO IMPORTANTE para Distribuidores (Profarma, Santa Cruz):
+#   - Por padrao, sell-out so tras canal Farmacia
+#   - Distribuidores vendem para outros canais (Hospitalar, Outros)
+#   - Para analise especifica de distribuidor com TODOS os canais:
+#     usuario filtra na mao depois (no dashboard ou direto na base)
+#
+# Decisao: priorizamos performance (~60k linhas) vs flexibilidade (~207k linhas)
+FILTRO_CANAL_PADRAO = "farmacia"
 
 
 def ler_depara(path):
@@ -110,36 +113,35 @@ def ler_depara(path):
 
     mapeamento = {}
     ignorar = set()
-    total_si = 0
-    total_so = 0
+    sellins_unicos = set()
 
     for _, row in df.iterrows():
         sellin = norm(row["PRODUTO_SELLIN"])
-        sellout_raw = norm(row["PRODUTO_SELLOUT"])
+        sellout = norm(row["PRODUTO_SELLOUT"])
         incluir = norm(row.get("INCLUIR_DASHBOARD", "SIM"))
 
-        if not sellout_raw:
+        if not sellout:
             continue
 
-        # Pode ter multiplos nomes sellout separados por ;
-        sellout_nomes = [s.strip() for s in sellout_raw.split(";") if s.strip()]
-
-        for so_nome in sellout_nomes:
-            if incluir == "NAO":
-                ignorar.add(so_nome)
-                continue
-            if sellin:
-                mapeamento[so_nome] = sellin
-                total_so += 1
-            else:
-                # so_nome sem sellin -> incluir mas nao mapear (mantem nome SO)
-                mapeamento[so_nome] = so_nome  # nome canonico = ele mesmo
-
+        # Formato: 1 par por linha (PRODUTO_SELLIN | PRODUTO_SELLOUT)
+        # Para mapear MULTIPLOS sell-out para o MESMO sell-in:
+        #   adicione VARIAS LINHAS com mesmo PRODUTO_SELLIN
+        # Exemplo:
+        #   SYSTANE ULTRA  | SYSTANE UL
+        #   SYSTANE ULTRA  | SYSTANE UL (SLC)
+        #   SYSTANE ULTRA  | SYSTANE U
+        if incluir == "NAO":
+            ignorar.add(sellout)
+            continue
         if sellin:
-            total_si += 1
+            mapeamento[sellout] = sellin
+            sellins_unicos.add(sellin)
+        else:
+            # sellout sem sellin -> incluir mas nao mapear (mantem nome SO)
+            mapeamento[sellout] = sellout  # nome canonico = ele mesmo
 
-    print(f"     Produtos sell-in mapeados: {total_si}")
-    print(f"     Produtos sell-out mapeados: {total_so}")
+    print(f"     Produtos sell-in unicos: {len(sellins_unicos)}")
+    print(f"     Pares sell-in <-> sell-out: {len(mapeamento)}")
     print(f"     Produtos a ignorar: {len(ignorar)}")
 
     return mapeamento, ignorar

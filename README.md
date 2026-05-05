@@ -51,12 +51,16 @@ Gera `dashboard_alcon_sales_insights.html` — abra no navegador.
 
 | PRODUTO_SELLIN | PRODUTO_SELLOUT | INCLUIR_DASHBOARD |
 |---|---|---|
-| SYSTANE ULTRA | SYSTANE UL; SYSTANE ULTRA (ALC) | SIM |
+| SYSTANE ULTRA | SYSTANE UL | SIM |
+| SYSTANE ULTRA | SYSTANE UL (SLC) | SIM |
+| SYSTANE ULTRA | SYSTANE U | SIM |
 | PATANOL S | PATANOL S (NVR) | SIM |
 | (vazio) | SYSTANE BALANCE | NAO |
 
 **Regras:**
-- Múltiplos nomes sell-out separados por `;` apontam pro MESMO sell-in (são somados)
+- **UMA LINHA POR PAR** sell-in / sell-out
+- Para mapear múltiplos nomes do sell-out pro MESMO sell-in, crie **várias linhas** com o mesmo `PRODUTO_SELLIN` (exemplo acima: SYSTANE ULTRA aparece 3x)
+- Match **exato** no nome (sem fuzzy)
 - `INCLUIR_DASHBOARD = NAO` ignora completamente (concorrentes, ruído)
 - Produtos não listados aparecem em `produtos_nao_mapeados.csv` (gerado automaticamente) e **não entram no dashboard** até serem mapeados
 
@@ -64,8 +68,18 @@ Gera `dashboard_alcon_sales_insights.html` — abra no navegador.
 
 1. Roda Python pela 1ª vez sem DePara → console mostra "**X produtos não mapeados**"
 2. Abre `produtos_nao_mapeados.csv` (gerado automaticamente)
-3. Copia colunas pra `DePara_Produtos.xlsx` e classifica
+3. Copia colunas pra `DePara_Produtos.xlsx` (uma linha por par) e classifica
 4. Roda Python novamente → dashboard 100% mapeado
+
+## 🏪 Filtro de Canal (Sell-out)
+
+**Default:** sell-out filtra apenas canal **Pharma** (CHAN_DESC contém 'farmacia').
+
+**Observação para Distribuidores (Profarma, Santa Cruz):**
+- Distribuidores vendem para outros canais além de Pharma (Hospitalar, Outros)
+- Por padrão, esses canais **não** entram no agregado
+- Para análise de distribuidor com **todos canais**: filtre na mão (no Excel ou direto na base de origem)
+- Decisão: priorizamos performance (~60k linhas) vs flexibilidade (~207k linhas)
 
 ## 📂 Estrutura dos Arquivos de Dados
 

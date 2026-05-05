@@ -1215,63 +1215,6 @@ function gerarDadosExemplo(){
   return dados;
 }
 
-// GERADOR SELL-OUT FICTICIO (live) - inclui UF + CHAN_DESC
-function gerarSelloutExemplo(){
-  const redes = [
-    {nome:'GRUPO RAIA DROGASIL', tipo:'2.REDE', uf:'SP'},
-    {nome:'PAGUE MENOS', tipo:'2.REDE', uf:'CE'},
-    {nome:'DPSP DROGARIAS', tipo:'2.REDE', uf:'SP'},
-    {nome:'PROFARMA DIST', tipo:'3.DISTRIBUIDOR', uf:'RJ'},
-    {nome:'SANTA CRUZ FARMA', tipo:'3.DISTRIBUIDOR', uf:'SP'},
-    {nome:'PANVEL', tipo:'2.REDE', uf:'RS'},
-    {nome:'DROGARIA NISSEI', tipo:'2.REDE', uf:'PR'},
-    {nome:'INDEPENDENTE SP', tipo:'1.INDEPENDENTE', uf:'SP'},
-    {nome:'INDEPENDENTE NE', tipo:'1.INDEPENDENTE', uf:'BA'},
-    {nome:'INDEPENDENTE MG', tipo:'1.INDEPENDENTE', uf:'MG'},
-    {nome:'INDEPENDENTE GO', tipo:'1.INDEPENDENTE', uf:'GO'}
-  ];
-  const produtosSO = [
-    {n:'CLARIL', fr:'PHARMA', brl:48, gap:0.15},
-    {n:'SYSTANE ULTRA', fr:'PHARMA', brl:42, gap:0.10},
-    {n:'SYSTANE COMPLETE', fr:'PHARMA', brl:50, gap:0.18},
-    {n:'PATADAY', fr:'PHARMA', brl:80, gap:-0.05},
-    {n:'MAXIDEX', fr:'PHARMA', brl:36, gap:0.05},
-    {n:'TOBRADEX', fr:'PHARMA', brl:40, gap:0.20},
-    {n:'PRED FORTE', fr:'PHARMA', brl:52, gap:0.25},
-    {n:'TRAVATAN Z', fr:'PHARMA', brl:115, gap:-0.10},
-    {n:'TOTAL 30', fr:'LENTES', brl:175, gap:0.12},
-    {n:'DAILIES TOTAL1', fr:'LENTES', brl:215, gap:0.08}
-  ];
-  // No live, tudo é Farmacia (já que Python filtra)
-  let seed = 17;
-  const rand = () => {seed=(seed*9301+49297)%233280;return seed/233280;};
-  const dados = [];
-  for(let ano=2024; ano<=2026; ano++){
-    for(let mes=1; mes<=12; mes++){
-      if(ano===2024 && mes<4) continue;
-      if(ano===2026 && mes>1) continue;
-      redes.forEach((rede, idxRede) => {
-        produtosSO.forEach(prod => {
-          const tamanhoRede = (10 - idxRede) * 0.15 + 0.5;
-          const sazonalidade = 1 + 0.25*Math.sin((mes-1)*Math.PI/6);
-          const crescimentoSO = 1 + (ano-2024)*(0.05 + prod.gap) + (rand()-0.5)*0.10;
-          const baseUnid = (200 + rand()*800) * tamanhoRede * sazonalidade * crescimentoSO;
-          const unid = Math.round(baseUnid);
-          if(unid <= 0) return;
-          dados.push({
-            GRUPO_PAINEL: rede.nome, FRANQUIA: prod.fr, TIPO_CLIENTE: rede.tipo,
-            PRODUTO: prod.n, ANO: ano, MES: mes,
-            CHAN_DESC: 'Farmacia', UF: rede.uf,
-            BRL: Math.round(unid * prod.brl), UNID: unid
-          });
-        });
-      });
-    }
-  }
-  return {dados: dados, ultimoPeriodo: {ano: 2026, mes: 1}};
-}
-
-
 // ============================================================
 // TOGGLE DE MÉTRICA
 // ============================================================
@@ -8233,29 +8176,7 @@ function fmt(n){
 
 // INIT
 rawData = gerarDadosExemplo();
-mapTargets = {
-  'SYSTANE COMPLETE': 30, 'SYSTANE ULTRA': 25, 'PATADAY': 15,
-  'ACRYSOF IQ': 20, 'CLAREON': 35, 'VIVITY': 40, 'PANOPTIX': 28,
-  'DAILIES TOTAL1': 22, 'DURYSTA': 45, 'CYPASS': 25,
-  'CLARIL': 25, 'MAXIDEX': 20, 'TOBRADEX': 30, 'PRED FORTE': 25, 'TRAVATAN Z': 15
-};
-const selloutDemo = gerarSelloutExemplo();
-rawDataSellout = selloutDemo.dados;
-selloutUltimoPeriodo = selloutDemo.ultimoPeriodo;
-window.__clienteTipoMap = {
-  'PROFARMA DIST': 'DISTRIBUIDOR',
-  'SANTA CRUZ FARMA': 'DISTRIBUIDOR',
-  'GRUPO RAIA DROGASIL': '2.REDE',
-  'PAGUE MENOS': '2.REDE',
-  'DPSP DROGARIAS': '2.REDE',
-  'PANVEL': '2.REDE',
-  'DROGARIA NISSEI': '2.REDE',
-  'INDEPENDENTE SP': '1.INDEPENDENTE',
-  'INDEPENDENTE NE': '1.INDEPENDENTE',
-  'INDEPENDENTE MG': '1.INDEPENDENTE',
-  'INDEPENDENTE GO': '1.INDEPENDENTE'
-};
-document.getElementById('statusText').textContent = `${rawData.length.toLocaleString('pt-BR')} registros sell-in + ${rawDataSellout.length.toLocaleString('pt-BR')} sell-out + ${Object.keys(mapTargets).length} targets FOCO (demo)`;
+document.getElementById('statusText').textContent = `${rawData.length.toLocaleString('pt-BR')} registros (demo)`;
 inicializarFiltros();
 atualizarLabelsMetrica();
 renderizarTudo();
